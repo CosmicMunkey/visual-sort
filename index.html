@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VisualSort</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:           #0d1117;
+      --surface:      #161b22;
+      --surface2:     #1c2128;
+      --border:       #30363d;
+      --text:         #e6edf3;
+      --text-muted:   #8b949e;
+      --accent:       #58a6ff;
+      --accent-hover: #79c0ff;
+
+      --c-default:    #58a6ff;
+      --c-compare:    #388bfd;
+      --c-cond:       #f85149;
+      --c-swap:       #3fb950;
+      --c-aux:        #e3b341;
+      --c-pivot:      #bc8cff;
+      --c-sorted:     #1a7f37;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 13px;
+      overflow: hidden;
+    }
+
+    #app {
+      display: grid;
+      height: 100vh;
+      grid-template-rows: 46px 1fr 54px;
+      grid-template-columns: 210px 1fr;
+      grid-template-areas:
+        "topbar  topbar"
+        "sidebar canvas"
+        "botbar  botbar";
+    }
+
+    /* ── Top bar ── */
+    #topbar {
+      grid-area: topbar;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 24px;
+      user-select: none;
+    }
+    #topbar h1 {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--accent);
+      letter-spacing: -0.3px;
+      flex-shrink: 0;
+    }
+    .stat { display: flex; align-items: center; gap: 6px; }
+    .stat-label { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat-value { font-weight: 600; font-variant-numeric: tabular-nums; min-width: 56px; font-size: 13px; }
+    #stat-status { font-size: 12px; font-weight: 600; }
+    #topbar-spacer { flex: 1; }
+
+    /* ── Sidebar ── */
+    #sidebar {
+      grid-area: sidebar;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+    #sidebar::-webkit-scrollbar { width: 4px; }
+    #sidebar::-webkit-scrollbar-track { background: transparent; }
+    #sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .algo-group { padding-top: 4px; }
+    .algo-group-label {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      color: var(--text-muted);
+      padding: 8px 12px 3px;
+    }
+    .algo-btn {
+      display: block;
+      width: 100%;
+      text-align: left;
+      padding: 6px 12px;
+      background: none;
+      border: none;
+      border-left: 3px solid transparent;
+      color: var(--text);
+      cursor: pointer;
+      font-size: 12.5px;
+      transition: background 0.1s, border-color 0.1s, color 0.1s;
+    }
+    .algo-btn:hover:not(:disabled) {
+      background: rgba(88,166,255,0.08);
+      border-left-color: var(--border);
+    }
+    .algo-btn.active {
+      background: rgba(88,166,255,0.13);
+      border-left-color: var(--accent);
+      color: var(--accent-hover);
+      font-weight: 500;
+    }
+    .algo-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    #desc-panel {
+      margin-top: auto;
+      padding: 10px 12px;
+      color: var(--text-muted);
+      font-size: 11.5px;
+      line-height: 1.55;
+      border-top: 1px solid var(--border);
+      min-height: 52px;
+    }
+
+    /* ── Canvas ── */
+    #canvas-wrap {
+      grid-area: canvas;
+      position: relative;
+      overflow: hidden;
+      background: var(--bg);
+    }
+    #canvas { display: block; }
+
+    /* ── Bottom bar ── */
+    #botbar {
+      grid-area: botbar;
+      background: var(--surface);
+      border-top: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 14px;
+      gap: 18px;
+      user-select: none;
+    }
+    .ctrl { display: flex; align-items: center; gap: 7px; }
+    .ctrl-label { color: var(--text-muted); font-size: 11px; white-space: nowrap; }
+    input[type="range"] {
+      width: 90px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+    .ctrl-val { color: var(--text); font-size: 11px; min-width: 28px; font-variant-numeric: tabular-nums; }
+
+    .btn {
+      padding: 5px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--surface2);
+      color: var(--text);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      transition: background 0.1s, border-color 0.1s;
+    }
+    .btn:hover:not(:disabled) { background: rgba(255,255,255,0.07); border-color: var(--accent); }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); border-color: var(--accent); color: #0d1117; }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+    .btn-danger { background: rgba(248,81,73,0.12); border-color: rgba(248,81,73,0.6); color: #ff7b72; }
+    .btn-danger:hover:not(:disabled) { background: rgba(248,81,73,0.22); }
+
+    .legend {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .leg { display: flex; align-items: center; gap: 4px; font-size: 10.5px; color: var(--text-muted); }
+    .leg-dot { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <header id="topbar">
+    <h1>⬆ VisualSort</h1>
+    <div class="stat">
+      <span class="stat-label">Comparisons</span>
+      <span class="stat-value" id="sv-cmp">—</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Swaps / Writes</span>
+      <span class="stat-value" id="sv-swp">—</span>
+    </div>
+    <div class="stat">
+      <span class="stat-label">Time</span>
+      <span class="stat-value" id="sv-time">—</span>
+    </div>
+    <div class="stat" id="sv-status-wrap" style="display:none">
+      <span id="stat-status"></span>
+    </div>
+    <div id="topbar-spacer"></div>
+  </header>
+
+  <nav id="sidebar">
+    <div id="desc-panel">Hover an algorithm for details, then click to run.</div>
+  </nav>
+
+  <main id="canvas-wrap">
+    <canvas id="canvas"></canvas>
+  </main>
+
+  <footer id="botbar">
+    <div class="ctrl">
+      <label class="ctrl-label" for="sl-size">Size</label>
+      <input type="range" id="sl-size" min="10" max="400" value="80">
+      <span class="ctrl-val" id="vl-size">80</span>
+    </div>
+    <div class="ctrl">
+      <label class="ctrl-label" for="sl-speed">Speed</label>
+      <input type="range" id="sl-speed" min="0" max="100" value="70">
+      <span class="ctrl-val" id="vl-speed">Medium</span>
+    </div>
+    <button id="btn-gen" class="btn btn-primary">Generate</button>
+    <button id="btn-stop" class="btn btn-danger" disabled>Stop</button>
+    <div class="legend">
+      <div class="leg"><div class="leg-dot" style="background:var(--c-compare)"></div>Compare</div>
+      <div class="leg"><div class="leg-dot" style="background:var(--c-cond)"></div>Cond.&nbsp;Swap</div>
+      <div class="leg"><div class="leg-dot" style="background:var(--c-swap)"></div>Swap</div>
+      <div class="leg"><div class="leg-dot" style="background:var(--c-aux)"></div>Write</div>
+      <div class="leg"><div class="leg-dot" style="background:var(--c-pivot)"></div>Pivot</div>
+      <div class="leg"><div class="leg-dot" style="background:var(--c-sorted)"></div>Sorted</div>
+    </div>
+  </footer>
+
+</div>
+<script>
+'use strict';
+
+// ═══════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════
+let arr       = [];       // working array (values 1..n)
+let colors    = [];       // per-bar color override (null = default)
+let running   = false;
+let cmps      = 0;        // comparisons
+let swps      = 0;        // swaps / writes
+let t0        = 0;        // sort start time
+let timerTick = null;
+let logW      = 0;        // logical canvas width
+let logH      = 0;        // logical canvas height
+let lastDrawT = 0;        // for 60-fps batching at delay=0
+let sortDone  = Promise.resolve();  // resolves when current sort finishes
+
+const C = {
+  DEFAULT: '#58a6ff',
+  COMPARE: '#388bfd',
+  COND:    '#f85149',
+  SWAP:    '#3fb950',
+  AUX:     '#e3b341',
+  PIVOT:   '#bc8cff',
+  SORTED:  '#1a7f37',
+};
+
+// ═══════════════════════════════════════════════════════════
+// CANVAS
+// ═══════════════════════════════════════════════════════════
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+
+function resizeCanvas() {
+  const wrap = document.getElementById('canvas-wrap');
+  const dpr  = window.devicePixelRatio || 1;
+  logW = wrap.clientWidth;
+  logH = wrap.clientHeight;
+  canvas.width  = logW * dpr;
+  canvas.height = logH * dpr;
+  canvas.style.width  = logW + 'px';
+  canvas.style.height = logH + 'px';
+  ctx.resetTransform();
+  ctx.scale(dpr, dpr);
+  draw();
+}
+
+function draw() {
+  ctx.fillStyle = '#0d1117';
+  ctx.fillRect(0, 0, logW, logH);
+  const n = arr.length;
+  if (n === 0) return;
+  const barW = Math.max(1, Math.floor((logW - 4) / n));
+  const gap  = barW > 3 ? 1 : 0;
+  const bw   = barW - gap;
+  for (let i = 0; i < n; i++) {
+    const bh = Math.max(1, Math.round((arr[i] / n) * (logH - 4)));
+    ctx.fillStyle = colors[i] || C.DEFAULT;
+    ctx.fillRect(2 + i * barW, logH - 2 - bh, bw, bh);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// STATS
+// ═══════════════════════════════════════════════════════════
+function updateStats() {
+  document.getElementById('sv-cmp').textContent = cmps.toLocaleString();
+  document.getElementById('sv-swp').textContent = swps.toLocaleString();
+}
+
+function startTimer() {
+  t0 = performance.now();
+  if (timerTick) clearInterval(timerTick);
+  timerTick = setInterval(() => {
+    const ms = Math.round(performance.now() - t0);
+    document.getElementById('sv-time').textContent =
+      ms >= 1000 ? (ms / 1000).toFixed(2) + 's' : ms + 'ms';
+  }, 80);
+}
+
+function stopTimer() {
+  if (timerTick) { clearInterval(timerTick); timerTick = null; }
+  const ms = Math.round(performance.now() - t0);
+  document.getElementById('sv-time').textContent =
+    ms >= 1000 ? (ms / 1000).toFixed(2) + 's' : ms + 'ms';
+}
+
+function resetStats() {
+  cmps = 0; swps = 0;
+  document.getElementById('sv-cmp').textContent  = '—';
+  document.getElementById('sv-swp').textContent  = '—';
+  document.getElementById('sv-time').textContent = '—';
+}
+
+function setStatus(text, color) {
+  const wrap = document.getElementById('sv-status-wrap');
+  const el   = document.getElementById('stat-status');
+  wrap.style.display = text ? 'flex' : 'none';
+  el.textContent  = text;
+  el.style.color  = color || C.DEFAULT;
+}
+
+// ═══════════════════════════════════════════════════════════
+// ANIMATION PRIMITIVES
+// ═══════════════════════════════════════════════════════════
+class AbortError extends Error {
+  constructor() { super('Aborted'); this.name = 'AbortError'; }
+}
+
+function chk() { if (!running) throw new AbortError(); }
+
+function delay() {
+  const s = parseInt(document.getElementById('sl-speed').value);
+  if (s >= 100) return 0;
+  return Math.round(180 * Math.pow(1 - s / 100, 2.4));
+}
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, ms));
+}
+
+// Highlight bars, draw if appropriate, wait, then restore previous colors.
+async function show(indices, color) {
+  chk();
+  const saved = indices.map(i => colors[i]);
+  for (const i of indices) colors[i] = color;
+  const d = delay();
+  if (d > 0) {
+    draw();
+    await sleep(d);
+    chk();
+  } else {
+    const now = performance.now();
+    if (now - lastDrawT >= 16) {
+      draw();
+      lastDrawT = now;
+      await sleep(0);
+      chk();
+    }
+  }
+  for (let k = 0; k < indices.length; k++) colors[indices[k]] = saved[k];
+}
+
+function swapQuiet(i, j) {
+  const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+}
+
+// Compare two positions. Returns index of lesser element.
+async function compare(i, j) {
+  cmps++; updateStats();
+  await show([i, j], C.COMPARE);
+  return arr[i] < arr[j] ? i : j;
+}
+
+// Compare two positions. Returns index of greater element.
+async function compareMax(i, j) {
+  cmps++; updateStats();
+  await show([i, j], C.COMPARE);
+  return arr[i] > arr[j] ? i : j;
+}
+
+// Unconditional swap.
+async function swap(i, j) {
+  swps++; updateStats();
+  await show([i, j], C.SWAP);
+  swapQuiet(i, j);
+  draw();
+}
+
+// Swap i and j into ascending order if needed.
+// Returns true if swapped.
+async function compareSwap(i, j) {
+  cmps++; updateStats();
+  await show([i, j], C.COND);
+  const lo = Math.min(i, j), hi = Math.max(i, j);
+  let swapped = false;
+  if (arr[hi] < arr[lo]) { swps++; swapQuiet(lo, hi); swapped = true; updateStats(); }
+  draw();
+  return swapped;
+}
+
+// Swap i and j into descending order if needed (for max-heap).
+// Returns true if swapped.
+async function compareMaxSwap(i, j) {
+  cmps++; updateStats();
+  await show([i, j], C.COND);
+  let swapped = false;
+  if (arr[i] < arr[j]) { swps++; swapQuiet(i, j); swapped = true; updateStats(); }
+  draw();
+  return swapped;
+}
+
+// Write a value to position i (for merge/radix/counting).
+async function writeVal(i, val) {
+  swps++; updateStats();
+  await show([i], C.AUX);
+  arr[i] = val;
+  if (colors[i] !== C.SORTED) colors[i] = null;
+  draw();
+}
+
+// Mark a single bar as permanently sorted.
+function markSorted(i) {
+  colors[i] = C.SORTED;
+}
+
+// Sweep all bars to sorted color (respects stop).
+async function sweepSorted() {
+  for (let i = 0; i < arr.length; i++) {
+    if (!running) break;
+    colors[i] = C.SORTED;
+    if (i % Math.max(1, Math.floor(arr.length / 80)) === 0) {
+      draw();
+      await sleep(6);
+    }
+  }
+  draw();
+}
+
+// ═══════════════════════════════════════════════════════════
+// HEAP HELPERS
+// ═══════════════════════════════════════════════════════════
+const lChild  = x => 2 * x + 1;
+const rChild  = x => 2 * x + 2;
+const hParent = x => Math.floor((x + 1) / 2) - 1;
+
+async function percolateDown(x, heapSize) {
+  if (lChild(x) >= heapSize) return;
+  if (rChild(x) >= heapSize) {
+    await compareMaxSwap(x, lChild(x));
+    return;
+  }
+  const bigger = await compareMax(lChild(x), rChild(x));
+  if (await compareMaxSwap(x, bigger)) {
+    await percolateDown(bigger, heapSize);
+  }
+}
+
+async function buildHeap() {
+  for (let i = hParent(arr.length - 1); i >= 0; i--)
+    await percolateDown(i, arr.length);
+}
+
+// ═══════════════════════════════════════════════════════════
+// SORTING ALGORITHMS
+// ═══════════════════════════════════════════════════════════
+
+// 1. Bubble Sort
+async function bubbleSort() {
+  const n = arr.length;
+  for (let i = 0; i < n - 1; i++) {
+    for (let j = n - 1; j > i; j--)
+      await compareSwap(j, j - 1);
+    markSorted(i);
+  }
+  markSorted(n - 1);
+}
+
+// 2. Bidirectional Bubble Sort (Cocktail Shaker)
+async function bidirectionalBubbleSort() {
+  let lo = 0, hi = arr.length - 1;
+  while (lo < hi) {
+    let lowest = hi;
+    for (let j = hi; j > lo; j--)
+      if (await compareSwap(j, j - 1)) lowest = j;
+    markSorted(lo);
+    lo = lowest;
+
+    let highest = lo;
+    for (let j = lo; j < hi; j++)
+      if (await compareSwap(j, j + 1)) highest = j;
+    markSorted(hi);
+    hi = highest;
+  }
+  markSorted(lo);
+}
+
+// 3. Simultaneous Bidirectional Bubble Sort
+// Two comparison pointers advance inward simultaneously each pass.
+// Uses simple lo++/hi-- convergence to guarantee correct termination.
+async function simultaneousBubbleSort() {
+  let lo = 0, hi = arr.length - 1;
+  while (lo < hi) {
+    for (let j = hi, k = lo; j > lo || k < hi; j--, k++) {
+      if (j > lo) await compareSwap(j, j - 1);
+      if (k < hi) await compareSwap(k, k + 1);
+    }
+    lo++;
+    hi--;
+  }
+}
+
+// 4. Comb Sort
+async function combSort() {
+  const n = arr.length;
+  let gap = n, sorted = false;
+  while (gap > 1 || sorted === false) {
+    gap = Math.max(1, Math.floor(gap / 1.3));
+    sorted = true;
+    for (let j = n - 1; j >= gap; j--)
+      if (await compareSwap(j, j - gap)) sorted = false;
+  }
+}
+
+// 5. Insertion Sort
+async function insertionSort() {
+  for (let i = 1; i < arr.length; i++) {
+    let moved = true;
+    for (let j = i; j > 0 && moved; j--)
+      moved = await compareSwap(j - 1, j);
+  }
+}
+
+// 6. Shell Sort (Ciura gap sequence)
+async function shellSort() {
+  const gaps = [1, 4, 10, 23, 57, 132, 301, 701, 1750];
+  for (let g = gaps.length - 1; g >= 0; g--) {
+    const gap = gaps[g];
+    if (gap >= arr.length) continue;
+    for (let off = 0; off < gap; off++) {
+      for (let i = 1; i * gap + off < arr.length; i++) {
+        let moved = true;
+        for (let j = i; j > 0 && moved; j--)
+          moved = await compareSwap(off + (j - 1) * gap, off + j * gap);
+      }
+    }
+  }
+}
+
+// 7. Gnome Sort
+async function gnomeSort() {
+  let i = 0;
+  while (i < arr.length - 1) {
+    if (await compareSwap(i, i + 1)) {
+      if (i > 0) i--;
+    } else {
+      i++;
+    }
+  }
+}
+
+// 8. Selection Sort
+async function selectionSort() {
+  for (let i = 0; i < arr.length; i++) {
+    let min = i;
+    for (let j = i + 1; j < arr.length; j++)
+      min = await compare(min, j);
+    if (min !== i) await swap(i, min);
+    markSorted(i);
+  }
+}
+
+// 9. Heap Sort
+async function heapSort() {
+  await buildHeap();
+  for (let sz = arr.length - 1; sz > 0; sz--) {
+    await swap(0, sz);
+    markSorted(sz);
+    await percolateDown(0, sz);
+  }
+  markSorted(0);
+}
+
+// 10. Heapify (standalone)
+async function heapifyOnly() {
+  await buildHeap();
+}
+
+// 11. Quicksort (Lomuto partition, middle pivot)
+async function quickSort() {
+  await qsRange(0, arr.length - 1);
+}
+
+async function qsRange(lo, hi) {
+  if (lo >= hi) { if (lo === hi) markSorted(lo); return; }
+  const p = await qsPartition(lo, hi);
+  markSorted(p);
+  await qsRange(lo, p - 1);
+  await qsRange(p + 1, hi);
+}
+
+async function qsPartition(lo, hi) {
+  const mid = lo + ((hi - lo) >> 1);
+  // Highlight pivot briefly
+  colors[mid] = C.PIVOT;
+  draw();
+  const d = delay();
+  if (d > 0) await sleep(d); else await sleep(0);
+  chk();
+  colors[mid] = null;
+  await swap(mid, hi);         // move pivot to end
+  let store = lo;
+  for (let i = lo; i < hi; i++) {
+    const lesser = await compare(i, hi);  // compare with pivot at hi
+    if (lesser === i) {                    // arr[i] < pivot
+      if (i !== store) await swap(i, store);
+      store++;
+    }
+  }
+  await swap(store, hi);       // place pivot in final position
+  return store;
+}
+
+// 12. Merge Sort (top-down)
+async function mergeSort() {
+  await msRange(0, arr.length - 1);
+}
+
+async function msRange(lo, hi) {
+  if (lo >= hi) return;
+  const mid = lo + ((hi - lo) >> 1);
+  await msRange(lo, mid);
+  await msRange(mid + 1, hi);
+  await merge(lo, mid, hi);
+}
+
+async function merge(lo, mid, hi) {
+  const aux = arr.slice(lo, hi + 1);
+  let i = 0, j = mid - lo + 1, k = lo;
+  while (i <= mid - lo && j <= hi - lo) {
+    chk();
+    cmps++; updateStats();
+    // Show comparison in the original array positions (approximate, values may differ)
+    const li = lo + i, ri = lo + j;
+    colors[li] = C.COMPARE; colors[ri] = C.COMPARE;
+    const d = delay();
+    if (d > 0) { draw(); await sleep(d); chk(); }
+    else {
+      const now = performance.now();
+      if (now - lastDrawT >= 16) { draw(); lastDrawT = now; await sleep(0); chk(); }
+    }
+    colors[li] = null; colors[ri] = null;
+    if (aux[i] <= aux[j]) await writeVal(k++, aux[i++]);
+    else                  await writeVal(k++, aux[j++]);
+  }
+  while (i <= mid - lo) await writeVal(k++, aux[i++]);
+  while (j <= hi  - lo) await writeVal(k++, aux[j++]);
+}
+
+// 13. Counting Sort
+async function countingSort() {
+  const n = arr.length;
+  const cnt = new Array(n + 1).fill(0);
+  // Count phase
+  for (let i = 0; i < n; i++) {
+    chk();
+    cmps++; updateStats();
+    colors[i] = C.COMPARE;
+    const d = delay();
+    if (d > 0) { draw(); await sleep(d); chk(); }
+    else {
+      const now = performance.now();
+      if (now - lastDrawT >= 16) { draw(); lastDrawT = now; await sleep(0); chk(); }
+    }
+    colors[i] = null;
+    cnt[arr[i]]++;
+  }
+  // Write back in sorted order
+  let k = 0;
+  for (let v = 1; v <= n; v++)
+    while (cnt[v]-- > 0) await writeVal(k++, v);
+}
+
+// 14. Radix Sort (LSD, base 10)
+async function radixSort() {
+  const n   = arr.length;
+  const max = n;
+  const out = new Array(n);
+  for (let exp = 1; Math.floor(max / exp) > 0; exp *= 10) {
+    const cnt = new Array(10).fill(0);
+    for (let i = 0; i < n; i++) cnt[Math.floor(arr[i] / exp) % 10]++;
+    for (let i = 1; i < 10; i++) cnt[i] += cnt[i - 1];
+    for (let i = n - 1; i >= 0; i--) out[--cnt[Math.floor(arr[i] / exp) % 10]] = arr[i];
+    for (let i = 0; i < n; i++) await writeVal(i, out[i]);
+    chk();
+  }
+}
+
+// 15. Timsort (simplified: insertion sort runs + bottom-up merge)
+const TIM_RUN = 32;
+
+async function timSort() {
+  const n = arr.length;
+  for (let i = 0; i < n; i += TIM_RUN)
+    await insRange(i, Math.min(i + TIM_RUN - 1, n - 1));
+  for (let sz = TIM_RUN; sz < n; sz *= 2) {
+    for (let lo = 0; lo < n; lo += 2 * sz) {
+      const mid = Math.min(lo + sz - 1, n - 1);
+      const hi  = Math.min(lo + 2 * sz - 1, n - 1);
+      if (mid < hi) await merge(lo, mid, hi);
+    }
+  }
+}
+
+async function insRange(lo, hi) {
+  for (let i = lo + 1; i <= hi; i++) {
+    let moved = true;
+    for (let j = i; j > lo && moved; j--)
+      moved = await compareSwap(j - 1, j);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// ALGORITHM REGISTRY
+// ═══════════════════════════════════════════════════════════
+const ALGOS = [
+  {
+    group: 'Exchange / Bubble',
+    list: [
+      { id: 'bubble',  name: 'Bubble Sort',             fn: bubbleSort,
+        desc: 'Repeatedly walks the array comparing adjacent pairs, bubbling the largest unsorted element to its final position each pass. O(n²).' },
+      { id: 'bidir',   name: 'Bidirectional Bubble',    fn: bidirectionalBubbleSort,
+        desc: 'Cocktail shaker sort — alternates forward and backward passes, shrinking the unsorted window from both ends simultaneously.' },
+      { id: 'simul',   name: 'Simultaneous Bidir.',     fn: simultaneousBubbleSort,
+        desc: 'Two comparison pointers advance inward from both ends at the same time — looks wild, still O(n²).' },
+      { id: 'comb',    name: 'Comb Sort',               fn: combSort,
+        desc: 'Bubblesort with a shrinking gap (÷1.3) that eliminates turtles (small values near the end) early. Approaches O(n log n).' },
+    ]
+  },
+  {
+    group: 'Insertion',
+    list: [
+      { id: 'insert',  name: 'Insertion Sort',          fn: insertionSort,
+        desc: 'Builds a sorted prefix one element at a time, shifting each new element left until it reaches its correct position. O(n²).' },
+      { id: 'shell',   name: 'Shell Sort',              fn: shellSort,
+        desc: 'Diminishing-gap insertion sort using Ciura\'s empirically optimal gap sequence [1,4,10,23,57,132,301,701]. O(n^1.3) in practice.' },
+      { id: 'gnome',   name: 'Gnome Sort',              fn: gnomeSort,
+        desc: 'Insertion sort\'s forgetful cousin — walks forward comparing neighbours, then steps all the way back on a swap. Simple but slow.' },
+    ]
+  },
+  {
+    group: 'Selection',
+    list: [
+      { id: 'select',  name: 'Selection Sort',          fn: selectionSort,
+        desc: 'Scans the unsorted suffix for its minimum, then places it at the front. Always exactly O(n²) comparisons regardless of input.' },
+      { id: 'heap',    name: 'Heap Sort',               fn: heapSort,
+        desc: 'Builds a max-heap (heapify), then repeatedly extracts the maximum to a sorted suffix. Guaranteed O(n log n), in-place.' },
+      { id: 'heapify', name: 'Heapify',                 fn: heapifyOnly,
+        desc: 'Only the heap-construction phase: builds a max-heap by percolating each internal node down. Reveals the heap structure visually.' },
+    ]
+  },
+  {
+    group: 'Divide & Conquer',
+    list: [
+      { id: 'quick',   name: 'Quicksort',               fn: quickSort,
+        desc: 'Partitions around the middle element (Lomuto scheme), then recurses on each half. Average O(n log n); pivot shown in purple.' },
+      { id: 'merge',   name: 'Merge Sort',              fn: mergeSort,
+        desc: 'Recursively divides the array in half and merges sorted halves. Guaranteed O(n log n); auxiliary writes shown in yellow.' },
+    ]
+  },
+  {
+    group: 'Non-Comparison',
+    list: [
+      { id: 'counting',name: 'Counting Sort',           fn: countingSort,
+        desc: 'Counts occurrences of each value, then reconstructs the sorted array by writing each value back. O(n + k), k = value range.' },
+      { id: 'radix',   name: 'Radix Sort (LSD)',        fn: radixSort,
+        desc: 'Sorts by each decimal digit from least to most significant, using a stable counting pass per digit. O(nk), k = digit count.' },
+    ]
+  },
+  {
+    group: 'Hybrid',
+    list: [
+      { id: 'timsort', name: 'Timsort',                 fn: timSort,
+        desc: 'Splits into 32-element runs sorted by insertion sort, then merges with bottom-up merge sort. Python\'s and Java\'s built-in sort.' },
+    ]
+  },
+];
+
+// ═══════════════════════════════════════════════════════════
+// UI
+// ═══════════════════════════════════════════════════════════
+function buildSidebar() {
+  const nav       = document.getElementById('sidebar');
+  const descPanel = document.getElementById('desc-panel');
+
+  for (const group of ALGOS) {
+    const grpEl = document.createElement('div');
+    grpEl.className = 'algo-group';
+
+    const lbl = document.createElement('div');
+    lbl.className   = 'algo-group-label';
+    lbl.textContent = group.group;
+    grpEl.appendChild(lbl);
+
+    for (const algo of group.list) {
+      const btn = document.createElement('button');
+      btn.className       = 'algo-btn';
+      btn.textContent     = algo.name;
+      btn.dataset.id      = algo.id;
+
+      btn.addEventListener('mouseenter', () => { descPanel.textContent = algo.desc; });
+      btn.addEventListener('click',      () => { runAlgo(algo); });
+      grpEl.appendChild(btn);
+    }
+
+    nav.insertBefore(grpEl, descPanel);
+  }
+}
+
+function setActive(id) {
+  document.querySelectorAll('.algo-btn').forEach(b =>
+    b.classList.toggle('active', b.dataset.id === id));
+}
+
+function setBusy(busy) {
+  document.querySelectorAll('.algo-btn').forEach(b => b.disabled = busy);
+  document.getElementById('btn-gen').disabled   = busy;
+  document.getElementById('btn-stop').disabled  = !busy;
+  document.getElementById('sl-size').disabled   = busy;
+}
+
+async function runAlgo(algo) {
+  // Signal any running sort to abort, then wait for it to actually finish.
+  running = false;
+  await Promise.race([sortDone, sleep(350)]);
+
+  if (arr.length === 0) generateArray();
+
+  colors = new Array(arr.length).fill(null);
+  resetStats();
+  lastDrawT = 0;
+  setActive(algo.id);
+  setBusy(true);
+  setStatus('Sorting…', C.AUX);
+  running = true;
+  startTimer();
+
+  let resolveDone;
+  sortDone = new Promise(r => { resolveDone = r; });
+
+  try {
+    await algo.fn();
+    await sweepSorted();
+    setStatus('Done ✓', C.SWAP);
+  } catch (e) {
+    if (e.name !== 'AbortError') throw e;
+    colors = new Array(arr.length).fill(null);
+    draw();
+    setStatus('Stopped', C.COND);
+  } finally {
+    running = false;
+    stopTimer();
+    setBusy(false);
+    resolveDone();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// ARRAY GENERATION
+// ═══════════════════════════════════════════════════════════
+function generateArray() {
+  const n = parseInt(document.getElementById('sl-size').value);
+  arr     = Array.from({ length: n }, (_, i) => i + 1);
+  // Fisher-Yates shuffle
+  for (let i = n - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+  }
+  colors = new Array(n).fill(null);
+  resetStats();
+  setStatus('', null);
+  setActive(null);
+  draw();
+}
+
+// ═══════════════════════════════════════════════════════════
+// CONTROLS
+// ═══════════════════════════════════════════════════════════
+document.getElementById('btn-gen').addEventListener('click', () => {
+  if (running) { running = false; setTimeout(generateArray, 70); }
+  else generateArray();
+});
+
+document.getElementById('btn-stop').addEventListener('click', () => { running = false; });
+
+const slSize  = document.getElementById('sl-size');
+const slSpeed = document.getElementById('sl-speed');
+
+slSize.addEventListener('input', () => {
+  document.getElementById('vl-size').textContent = slSize.value;
+});
+
+slSpeed.addEventListener('input', () => {
+  const v = parseInt(slSpeed.value);
+  const label =
+    v >= 95 ? 'Max' :
+    v >= 80 ? 'Fast' :
+    v >= 55 ? 'Medium' :
+    v >= 25 ? 'Slow' : 'Very Slow';
+  document.getElementById('vl-speed').textContent = label;
+});
+
+// Space bar → generate new array
+document.addEventListener('keydown', e => {
+  if (e.code === 'Space' && !running && e.target.tagName !== 'INPUT') {
+    e.preventDefault();
+    generateArray();
+  }
+});
+
+window.addEventListener('resize', resizeCanvas);
+
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
+buildSidebar();
+resizeCanvas();
+generateArray();
+</script>
+</body>
+</html>
